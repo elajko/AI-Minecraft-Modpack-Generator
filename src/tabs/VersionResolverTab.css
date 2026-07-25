@@ -1,0 +1,145 @@
+.resolver-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.panel {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
+.panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1em;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.source-toggle {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.source-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.9em;
+}
+
+.status {
+  margin: 0.5rem 0 0;
+  font-size: 0.85em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.status.error {
+  color: #ff8a80;
+}
+
+.constraint-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.constraint-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.constraint-form select,
+.constraint-form input[type='text'],
+.constraint-form input:not([type]) {
+  background: #121212;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #fff;
+  padding: 0.4em 0.6em;
+  font-size: 0.95em;
+  min-width: 10em;
+}
+
+.type-filter {
+  display: flex;
+  gap: 0.9rem;
+  border: none;
+  padding: 0;
+  margin: 0;
+  align-items: center;
+}
+
+.type-filter legend {
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.6);
+  padding: 0;
+}
+
+.type-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.3em !important;
+  color: #fff !important;
+}
+
+.type-checkbox .dot {
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  background: var(--type-color);
+  display: inline-block;
+}
+
+.timeline-panel .timeline {
+  display: flex;
+  gap: 3px;
+  overflow-x: auto;
+  padding: 1rem 0;
+}
+
+.tick {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 32px;
+  border-radius: 2px;
+  background: var(--type-color);
+  opacity: 0.25;
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
+}
+
+.tick.included {
+  opacity: 1;
+  transform: scaleY(1.15);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+
+.legend {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.legend-item .dot {
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  display: inline-block;
+}
