@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { resolveVersions, type ResolveResult, type VersionConstraint, type VersionRecord } from '../lib/versionResolver';
 import { fetchModrinthVersions, SYNTHETIC_FIXTURE } from '../lib/modrinthVersions';
+import { buildTimelineSegments } from '../lib/timelineSegments';
 import './VersionResolverTab.css';
 
 type ConstraintKind = VersionConstraint['kind'];
@@ -62,6 +63,31 @@ export function VersionResolverTab() {
     if (!result || !result.ok) return new Set<string>();
     return new Set(result.versions.map((v) => v.id));
   }, [result]);
+
+  const timelineSegments = useMemo(() => buildTimelineSegments(sorted, resolvedIds), [sorted, resolvedIds]);
+
+  const timelineWrapperRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<{ text: string; left: number; top: number } | null>(null);
+
+  function showTooltip(e: React.MouseEvent<HTMLDivElement>, text: string) {
+    const wrapper = timelineWrapperRef.current;
+    if (!wrapper) return;
+    const tickRect = e.currentTarget.getBoundingClientRect();
+    const wrapperRect = wrapper.getBoundingClientRect();
+    setTooltip({ text, left: tickRect.left - wrapperRect.left + tickRect.width / 2, top: tickRect.top - wrapperRect.top });
+  }
+
+  // Keep the tooltip from spilling past the left/right edges of the timeline
+  // when hovering a pill near the start or end of the row.
+  useLayoutEffect(() => {
+    const wrapper = timelineWrapperRef.current;
+    const el = tooltipRef.current;
+    if (!tooltip || !wrapper || !el) return;
+    const halfWidth = el.offsetWidth / 2;
+    const clamped = Math.min(Math.max(tooltip.left, halfWidth), wrapper.clientWidth - halfWidth);
+    el.style.left = `${clamped}px`;
+  }, [tooltip]);
 
   function toggleType(type: string) {
     setIncludeTypes((prev) => {
@@ -163,15 +189,29 @@ export function VersionResolverTab() {
 
       <section className="panel timeline-panel">
         <h2>Timeline ({sorted.length} versions, oldest &rarr; newest)</h2>
-        <div className="timeline">
-          {sorted.map((v) => (
-            <div
-              key={v.id}
-              className={`tick ${resolvedIds.has(v.id) ? 'included' : 'excluded'}`}
-              style={{ '--type-color': colorFor(v.type) } as CSSProperties}
-              title={`${v.id} · ${v.type} · ${v.releasedAt}`}
-            />
-          ))}
+        <div className="timeline-wrapper" ref={timelineWrapperRef}>
+          <div className="timeline">
+            {timelineSegments.map((segment) => {
+              const first = segment.versions[0];
+              const last = segment.versions[segment.versions.length - 1];
+              const merged = segment.versions.length > 1;
+              const text = merged ? `${first.id} - ${last.id}` : `${first.id} · ${first.type} · ${first.releasedAt}`;
+              return (
+                <div
+                  key={first.id}
+                  className={`tick ${segment.included ? 'included' : 'excluded'} ${merged ? 'pill' : ''}`}
+                  style={{ '--type-color': colorFor(segment.type) } as CSSProperties}
+                  onMouseEnter={(e) => showTooltip(e, text)}
+                  onMouseLeave={() => setTooltip(null)}
+                />
+              );
+            })}
+          </div>
+          {tooltip && (
+            <div ref={tooltipRef} className="timeline-tooltip" style={{ left: tooltip.left, top: tooltip.top }}>
+              {tooltip.text}
+            </div>
+          )}
         </div>
         <div className="legend">
           {Object.entries(TYPE_COLORS).map(([type, color]) => (
