@@ -66,6 +66,12 @@ export function VersionResolverTab() {
 
   const timelineSegments = useMemo(() => buildTimelineSegments(sorted, resolvedIds), [sorted, resolvedIds]);
 
+  const [showUnselected, setShowUnselected] = useState(true);
+  const visibleSegments = useMemo(
+    () => (showUnselected ? timelineSegments : timelineSegments.filter((s) => s.included)),
+    [timelineSegments, showUnselected],
+  );
+
   const timelineWrapperRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<{ text: string; left: number; top: number } | null>(null);
@@ -189,9 +195,13 @@ export function VersionResolverTab() {
 
       <section className="panel timeline-panel">
         <h2>Timeline ({sorted.length} versions, oldest &rarr; newest)</h2>
+        <label className="show-unselected">
+          <input type="checkbox" checked={showUnselected} onChange={(e) => setShowUnselected(e.target.checked)} />
+          Show unselected versions
+        </label>
         <div className="timeline-wrapper" ref={timelineWrapperRef}>
           <div className="timeline">
-            {timelineSegments.map((segment) => {
+            {visibleSegments.map((segment) => {
               const first = segment.versions[0];
               const last = segment.versions[segment.versions.length - 1];
               const merged = segment.versions.length > 1;
