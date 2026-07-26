@@ -66,20 +66,40 @@ async function modrinthFetch<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function searchMods(query: string, gameVersion: string, loader: string): Promise<ModrinthSearchHit[]> {
+export interface ModrinthSearchPage {
+  hits: ModrinthSearchHit[];
+  offset: number;
+  limit: number;
+  totalHits: number;
+}
+
+export async function searchMods(
+  query: string,
+  gameVersion: string,
+  loader: string,
+  offset = 0,
+  limit = 20,
+): Promise<ModrinthSearchPage> {
   const facets = JSON.stringify([['project_type:mod'], [`versions:${gameVersion}`], [`categories:${loader}`]]);
-  const params = new URLSearchParams({ query, facets, limit: '20' });
-  const data = await modrinthFetch<{ hits: RawSearchHit[] }>(`/search?${params.toString()}`);
-  return data.hits.map((hit) => ({
-    projectId: hit.project_id,
-    slug: hit.slug,
-    title: hit.title,
-    author: hit.author,
-    description: hit.description,
-    iconUrl: hit.icon_url,
-    downloads: hit.downloads,
-    categories: hit.categories,
-  }));
+  const params = new URLSearchParams({ query, facets, offset: String(offset), limit: String(limit) });
+  const data = await modrinthFetch<{ hits: RawSearchHit[]; offset: number; limit: number; total_hits: number }>(
+    `/search?${params.toString()}`,
+  );
+  return {
+    hits: data.hits.map((hit) => ({
+      projectId: hit.project_id,
+      slug: hit.slug,
+      title: hit.title,
+      author: hit.author,
+      description: hit.description,
+      iconUrl: hit.icon_url,
+      downloads: hit.downloads,
+      categories: hit.categories,
+    })),
+    offset: data.offset,
+    limit: data.limit,
+    totalHits: data.total_hits,
+  };
 }
 
 function normalizeVersion(v: RawVersion): ModrinthVersion {
