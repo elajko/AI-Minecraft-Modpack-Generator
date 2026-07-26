@@ -1,0 +1,39 @@
+.target-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.target-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.target-form select {
+  background: #121212;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #fff;
+  padding: 0.4em 0.6em;
+  font-size: 0.95em;
+  min-width: 10em;
+}
+
+.search-form {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.search-form input[type='text'] {
+  flex: 1;
+  background: #121212;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #fff;
+  padding: 0.5em 0.7em;
+  font-size: 0.95em;
+}

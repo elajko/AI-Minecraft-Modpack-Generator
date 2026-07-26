@@ -105,7 +105,7 @@ export function VersionResolverTab() {
   }
 
   return (
-    <div className="resolver-tab">
+    <div className="tab-panels">
       <section className="panel">
         <h2>Data source</h2>
         <div className="source-toggle">
