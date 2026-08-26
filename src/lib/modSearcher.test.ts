@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { filterOutNegativeMatches, searchAcrossPositives, textMatchesAnyKeyword, type ModSearchQuery, type ModSearcher } from './modSearcher';
+import {
+  filterByGameVersion,
+  filterOutNegativeMatches,
+  searchAcrossPositives,
+  textMatchesAnyKeyword,
+  type ModSearchQuery,
+  type ModSearcher,
+} from './modSearcher';
 import type { ModrinthSearchHit } from './modrinthApi';
-import type { PackTarget } from './modpack';
 
 function hit(overrides: Partial<ModrinthSearchHit> = {}): ModrinthSearchHit {
   return {
@@ -13,6 +19,7 @@ function hit(overrides: Partial<ModrinthSearchHit> = {}): ModrinthSearchHit {
     iconUrl: null,
     downloads: 0,
     categories: [],
+    versions: ['1.20.1'],
     ...overrides,
   };
 }
@@ -54,6 +61,18 @@ describe('filterOutNegativeMatches', () => {
   });
 });
 
+describe('filterByGameVersion', () => {
+  it('keeps only hits whose versions list includes the given version', () => {
+    const hits = [hit({ projectId: 'a', versions: ['1.20.1', '1.20.2'] }), hit({ projectId: 'b', versions: ['1.19.4'] })];
+    expect(filterByGameVersion(hits, '1.20.1').map((h) => h.projectId)).toEqual(['a']);
+  });
+
+  it('returns an empty array when nothing supports the version', () => {
+    const hits = [hit({ versions: ['1.19.4'] })];
+    expect(filterByGameVersion(hits, '1.20.1')).toEqual([]);
+  });
+});
+
 class FakeSearcher implements ModSearcher {
   public calls: ModSearchQuery[] = [];
   constructor(private readonly hitsByPositive: Record<string, ModrinthSearchHit[]>) {}
@@ -63,17 +82,15 @@ class FakeSearcher implements ModSearcher {
   }
 }
 
-const target: PackTarget = { gameVersion: '1.20.1', loader: 'fabric' };
-
 describe('searchAcrossPositives', () => {
-  it('searches once per positive, each combined with the full negative list', async () => {
+  it('searches once per positive, each combined with the full negative list and the loader', async () => {
     const searcher = new FakeSearcher({ weapons: [hit({ projectId: 'a' })], exploration: [hit({ projectId: 'b' })] });
 
-    await searchAcrossPositives(['weapons', 'exploration'], ['minimap'], target, searcher);
+    await searchAcrossPositives(['weapons', 'exploration'], ['minimap'], 'fabric', searcher);
 
     expect(searcher.calls).toEqual([
-      { positive: 'weapons', negatives: ['minimap'] },
-      { positive: 'exploration', negatives: ['minimap'] },
+      { positive: 'weapons', negatives: ['minimap'], loader: 'fabric' },
+      { positive: 'exploration', negatives: ['minimap'], loader: 'fabric' },
     ]);
   });
 
@@ -83,7 +100,7 @@ describe('searchAcrossPositives', () => {
       combat: [hit({ projectId: 'shared' }), hit({ projectId: 'b' })],
     });
 
-    const result = await searchAcrossPositives(['weapons', 'combat'], [], target, searcher);
+    const result = await searchAcrossPositives(['weapons', 'combat'], [], 'fabric', searcher);
 
     expect(result.map((h) => h.projectId).sort()).toEqual(['a', 'b', 'shared']);
   });
@@ -92,14 +109,14 @@ describe('searchAcrossPositives', () => {
     const searcher = new FakeSearcher({ weapons: [], combat: [] });
     const seen: string[] = [];
 
-    await searchAcrossPositives(['weapons', 'combat'], [], target, searcher, (positive) => seen.push(positive));
+    await searchAcrossPositives(['weapons', 'combat'], [], 'fabric', searcher, (positive) => seen.push(positive));
 
     expect(seen).toEqual(['weapons', 'combat']);
   });
 
   it('returns no hits when there are no positives to search', async () => {
     const searcher = new FakeSearcher({});
-    expect(await searchAcrossPositives([], [], target, searcher)).toEqual([]);
+    expect(await searchAcrossPositives([], [], 'fabric', searcher)).toEqual([]);
     expect(searcher.calls).toEqual([]);
   });
 });

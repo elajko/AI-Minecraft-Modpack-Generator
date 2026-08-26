@@ -39,7 +39,7 @@ export async function runAiModSearch(
   onProgress({ message: 'Splitting the request into searchable themes…' });
   const { positives, negatives } = await splitter.split(description);
 
-  const hits = await searchAcrossPositives(positives, negatives, target, searcher, (positive) =>
+  const hits = await searchAcrossPositives(positives, negatives, target.loader, searcher, (positive) =>
     onProgress({ message: `Searching for "${positive}"…` }),
   );
 

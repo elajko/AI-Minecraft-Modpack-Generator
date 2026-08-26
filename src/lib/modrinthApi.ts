@@ -7,6 +7,8 @@ export interface ModrinthSearchHit {
   iconUrl: string | null;
   downloads: number;
   categories: string[];
+  /** Every Minecraft version this project claims to support. */
+  versions: string[];
 }
 
 export interface ModrinthVersionDependency {
@@ -37,6 +39,7 @@ interface RawSearchHit {
   icon_url: string | null;
   downloads: number;
   categories: string[];
+  versions: string[];
 }
 
 interface RawVersionDependency {
@@ -73,14 +76,16 @@ export interface ModrinthSearchPage {
   totalHits: number;
 }
 
-export async function searchMods(
-  query: string,
-  gameVersion: string,
-  loader: string,
-  offset = 0,
-  limit = 20,
-): Promise<ModrinthSearchPage> {
-  const facets = JSON.stringify([['project_type:mod'], [`versions:${gameVersion}`], [`categories:${loader}`]]);
+/**
+ * Searches Modrinth without a game-version facet — the version facet is
+ * genuinely optional on Modrinth's search endpoint (verified: a bare
+ * `query=sodium` returns the same 343 hits with `versions:1.20.1` narrowing
+ * it to 116, rather than the endpoint requiring one). Every hit still
+ * carries its own `versions` list, so callers can cache the full result and
+ * filter by whichever version is currently selected without re-querying.
+ */
+export async function searchMods(query: string, loader: string, offset = 0, limit = 20): Promise<ModrinthSearchPage> {
+  const facets = JSON.stringify([['project_type:mod'], [`categories:${loader}`]]);
   const params = new URLSearchParams({ query, facets, offset: String(offset), limit: String(limit) });
   const data = await modrinthFetch<{ hits: RawSearchHit[]; offset: number; limit: number; total_hits: number }>(
     `/search?${params.toString()}`,
@@ -95,6 +100,7 @@ export async function searchMods(
       iconUrl: hit.icon_url,
       downloads: hit.downloads,
       categories: hit.categories,
+      versions: hit.versions,
     })),
     offset: data.offset,
     limit: data.limit,
@@ -147,6 +153,7 @@ interface RawProject {
   icon_url: string | null;
   downloads: number;
   categories: string[];
+  game_versions: string[];
 }
 
 /**
@@ -168,6 +175,7 @@ export async function getProjectsByIds(projectIds: string[]): Promise<ModrinthSe
     iconUrl: p.icon_url,
     downloads: p.downloads,
     categories: p.categories,
+    versions: p.game_versions,
   }));
 }
 

@@ -6,7 +6,7 @@ import type { ModrinthSearchHit } from './modrinthApi';
 import type { PackTarget } from './modpack';
 
 function hit(projectId: string, title = projectId): ModrinthSearchHit {
-  return { projectId, slug: projectId, title, author: '', description: '', iconUrl: null, downloads: 0, categories: [] };
+  return { projectId, slug: projectId, title, author: '', description: '', iconUrl: null, downloads: 0, categories: [], versions: [] };
 }
 
 class FakeSplitter implements PromptSplitter {
@@ -41,8 +41,8 @@ describe('runAiModSearch', () => {
     const result = await runAiModSearch('irrelevant', target, noopProgress, splitter, searcher);
 
     expect(searcher.calls).toEqual([
-      { positive: 'dark fantasy weapons', negatives: ['minimap'] },
-      { positive: 'overhauled combat', negatives: ['minimap'] },
+      { positive: 'dark fantasy weapons', negatives: ['minimap'], loader: 'fabric' },
+      { positive: 'overhauled combat', negatives: ['minimap'], loader: 'fabric' },
     ]);
     expect(result.hits.map((h) => h.projectId).sort()).toEqual(['a', 'b']);
     expect(result.positives).toEqual(['dark fantasy weapons', 'overhauled combat']);

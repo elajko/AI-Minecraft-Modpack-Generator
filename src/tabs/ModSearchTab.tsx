@@ -3,7 +3,7 @@ import { fetchModLoaders, getCompatibleVersions, getProjectTitles, searchMods, t
 import { fetchModrinthVersions } from '../lib/modrinthVersions';
 import { addModToPack, type PackMod, type PackTarget } from '../lib/modpack';
 import { runAiModSearch } from '../lib/aiModSearch';
-import { defaultModSearcher, searchAcrossPositives } from '../lib/modSearcher';
+import { defaultModSearcher, filterByGameVersion, searchAcrossPositives } from '../lib/modSearcher';
 import { formatKeywordQuery, parseKeywordQuery } from '../lib/keywordQuery';
 import './ModSearchTab.css';
 
@@ -55,18 +55,39 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
   // 'browse': blank query, server-paginated (Modrinth's full catalog, one page fetched at a time).
   // 'keyword' / 'ai': the full deduped aggregate is fetched once and paginated client-side.
   const [resultsMode, setResultsMode] = useState<'browse' | 'keyword' | 'ai' | null>(null);
-  const [results, setResults] = useState<ModrinthSearchHit[] | null>(null);
+  // Every poll to Modrinth is version-agnostic (see lib/modrinthApi.ts) — this
+  // holds whatever was actually fetched (a browse page, or a full keyword/AI
+  // aggregate), unfiltered by version. Filtering for the selected version
+  // happens below, purely client-side, so switching versions never re-fetches.
+  const [rawResults, setRawResults] = useState<ModrinthSearchHit[] | null>(null);
+  const [browseTotalHits, setBrowseTotalHits] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [totalHits, setTotalHits] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
   const [addingId, setAddingId] = useState<string | null>(null);
 
+  const versionFilteredResults = useMemo(
+    () => (rawResults ? filterByGameVersion(rawResults, target.gameVersion) : null),
+    [rawResults, target.gameVersion],
+  );
+
+  // Browse mode's total is Modrinth's real catalog-wide count (we only ever
+  // hold one page of it); keyword/AI modes hold the full aggregate already,
+  // so their total is just how much of it currently matches the version.
+  const totalHits = resultsMode === 'browse' ? browseTotalHits : (versionFilteredResults?.length ?? 0);
+
   const visibleResults = useMemo(() => {
-    if (!results) return null;
-    return resultsMode === 'browse' ? results : results.slice(offset, offset + PAGE_SIZE);
-  }, [results, resultsMode, offset]);
+    if (!versionFilteredResults) return null;
+    return resultsMode === 'browse' ? versionFilteredResults : versionFilteredResults.slice(offset, offset + PAGE_SIZE);
+  }, [versionFilteredResults, resultsMode, offset]);
+
+  // A client-side page offset can point past the end once the version
+  // changes and the filtered set shrinks — snap back to the top rather than
+  // showing an empty page.
+  useEffect(() => {
+    setOffset(0);
+  }, [target.gameVersion]);
 
   const [aiDescription, setAiDescription] = useState('');
   const [submittedAiDescription, setSubmittedAiDescription] = useState<string | null>(null);
@@ -90,11 +111,11 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     setSearchLoading(true);
     setSearchError(null);
     try {
-      const page = await searchMods('', target.gameVersion, target.loader, newOffset, PAGE_SIZE);
-      setResults(page.hits);
+      const page = await searchMods('', target.loader, newOffset, PAGE_SIZE);
+      setRawResults(page.hits);
       setResultsMode('browse');
       setOffset(page.offset);
-      setTotalHits(page.totalHits);
+      setBrowseTotalHits(page.totalHits);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -110,11 +131,10 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     setSearchError(null);
     try {
       const { positives, negatives } = parseKeywordQuery(q);
-      const hits = await searchAcrossPositives(positives, negatives, target, defaultModSearcher);
-      setResults(hits);
+      const hits = await searchAcrossPositives(positives, negatives, target.loader, defaultModSearcher);
+      setRawResults(hits);
       setResultsMode('keyword');
       setOffset(0);
-      setTotalHits(hits.length);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -170,10 +190,9 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     setSubmittedAiDescription(description);
     try {
       const result = await runAiModSearch(description, target, (progress) => setAiProgressMessage(progress.message));
-      setResults(result.hits);
+      setRawResults(result.hits);
       setResultsMode('ai');
       setOffset(0);
-      setTotalHits(result.hits.length);
       // Mirror the AI's query into the plain search bar using the same
       // comma/bang syntax it understands, so re-running it (or tweaking it
       // by hand) reproduces this exact result via the same searcher.
@@ -314,7 +333,7 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
           {searchError && <p className="status error">{searchError}</p>}
         </section>
 
-        {results && (
+        {rawResults && (
           <section className="panel">
             <div className="results-header">
               <h2>
@@ -343,7 +362,9 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
                 </div>
               )}
             </div>
-            {results.length === 0 && <p className="status">No mods matched that search for {target.loader} {target.gameVersion}.</p>}
+            {versionFilteredResults?.length === 0 && (
+              <p className="status">No mods matched that search for {target.loader} {target.gameVersion}.</p>
+            )}
             <ul className="mod-list">
               {visibleResults?.map((hit) => (
                 <li key={hit.projectId} className="mod-row">
