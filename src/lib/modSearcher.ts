@@ -17,7 +17,7 @@ export interface ModSearcher {
   search(query: ModSearchQuery, target: PackTarget): Promise<ModrinthSearchHit[]>;
 }
 
-const RESULTS_PER_SEARCH = 10;
+const RESULTS_PER_SEARCH = 25;
 
 export function textMatchesAnyKeyword(text: string, keywords: string[]): boolean {
   const lower = text.toLowerCase();
@@ -40,4 +40,30 @@ export class KeywordFilteredModSearcher implements ModSearcher {
     const page = await searchMods(positive, target.gameVersion, target.loader, 0, RESULTS_PER_SEARCH);
     return filterOutNegativeMatches(page.hits, negatives);
   }
+}
+
+export const defaultModSearcher: ModSearcher = new KeywordFilteredModSearcher();
+
+/**
+ * Runs one search per positive — always combined with the *entire* negative
+ * list — and dedupes the results by project id. Shared by both the AI
+ * pipeline (positives/negatives come from splitting a freeform description)
+ * and the plain search bar's comma syntax (positives/negatives come from
+ * parsing the typed query directly), so both paths behave identically for
+ * the same effective query.
+ */
+export async function searchAcrossPositives(
+  positives: string[],
+  negatives: string[],
+  target: PackTarget,
+  searcher: ModSearcher = defaultModSearcher,
+  onSearching?: (positive: string) => void,
+): Promise<ModrinthSearchHit[]> {
+  const seen = new Map<string, ModrinthSearchHit>();
+  for (const positive of positives) {
+    onSearching?.(positive);
+    const hits = await searcher.search({ positive, negatives }, target);
+    for (const hit of hits) seen.set(hit.projectId, hit);
+  }
+  return Array.from(seen.values());
 }

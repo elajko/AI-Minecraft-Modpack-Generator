@@ -29,35 +29,23 @@ class FakeSearcher implements ModSearcher {
 const target: PackTarget = { gameVersion: '1.20.1', loader: 'fabric' };
 const noopProgress = () => {};
 
+// The per-positive search/combine/dedupe behavior itself is tested directly
+// against searchAcrossPositives in modSearcher.test.ts. These tests cover
+// what's unique to this orchestrator: wiring the splitter's output into that
+// shared logic, and propagating splitter failures.
 describe('runAiModSearch', () => {
-  it('searches once per positive, each combined with the full negative list', async () => {
+  it('passes the split positives/negatives through to the searcher', async () => {
     const splitter = new FakeSplitter({ positives: ['dark fantasy weapons', 'overhauled combat'], negatives: ['minimap'] });
     const searcher = new FakeSearcher({ 'dark fantasy weapons': [hit('a')], 'overhauled combat': [hit('b')] });
 
-    await runAiModSearch('irrelevant', target, noopProgress, splitter, searcher);
+    const result = await runAiModSearch('irrelevant', target, noopProgress, splitter, searcher);
 
     expect(searcher.calls).toEqual([
       { positive: 'dark fantasy weapons', negatives: ['minimap'] },
       { positive: 'overhauled combat', negatives: ['minimap'] },
     ]);
-  });
-
-  it('deduplicates hits found by more than one positive search', async () => {
-    const splitter = new FakeSplitter({ positives: ['weapons', 'combat'], negatives: [] });
-    const searcher = new FakeSearcher({ weapons: [hit('shared'), hit('a')], combat: [hit('shared'), hit('b')] });
-
-    const result = await runAiModSearch('irrelevant', target, noopProgress, splitter, searcher);
-
-    expect(result.hits.map((h) => h.projectId).sort()).toEqual(['a', 'b', 'shared']);
-  });
-
-  it('returns the positives/negatives the request was split into', async () => {
-    const splitter = new FakeSplitter({ positives: ['exploration'], negatives: ['minimap'] });
-    const searcher = new FakeSearcher({ exploration: [] });
-
-    const result = await runAiModSearch('irrelevant', target, noopProgress, splitter, searcher);
-
-    expect(result.positives).toEqual(['exploration']);
+    expect(result.hits.map((h) => h.projectId).sort()).toEqual(['a', 'b']);
+    expect(result.positives).toEqual(['dark fantasy weapons', 'overhauled combat']);
     expect(result.negatives).toEqual(['minimap']);
   });
 
@@ -69,12 +57,13 @@ describe('runAiModSearch', () => {
     expect(searcher.calls).toEqual([]);
   });
 
-  it('returns no hits when no positive search finds anything', async () => {
-    const splitter = new FakeSplitter({ positives: ['obscure theme'], negatives: [] });
-    const searcher = new FakeSearcher({ 'obscure theme': [] });
+  it('reports progress for the split step and each positive search', async () => {
+    const splitter = new FakeSplitter({ positives: ['weapons'], negatives: [] });
+    const searcher = new FakeSearcher({ weapons: [] });
+    const messages: string[] = [];
 
-    const result = await runAiModSearch('irrelevant', target, noopProgress, splitter, searcher);
+    await runAiModSearch('irrelevant', target, (p) => messages.push(p.message), splitter, searcher);
 
-    expect(result.hits).toEqual([]);
+    expect(messages).toEqual(['Splitting the request into searchable themes…', 'Searching for "weapons"…']);
   });
 });

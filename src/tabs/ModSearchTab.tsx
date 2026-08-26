@@ -3,6 +3,8 @@ import { fetchModLoaders, getCompatibleVersions, getProjectTitles, searchMods, t
 import { fetchModrinthVersions } from '../lib/modrinthVersions';
 import { addModToPack, type PackMod, type PackTarget } from '../lib/modpack';
 import { runAiModSearch } from '../lib/aiModSearch';
+import { defaultModSearcher, searchAcrossPositives } from '../lib/modSearcher';
+import { formatKeywordQuery, parseKeywordQuery } from '../lib/keywordQuery';
 import './ModSearchTab.css';
 
 const PAGE_SIZE = 20;
@@ -50,14 +52,21 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
 
   const [query, setQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
+  // 'browse': blank query, server-paginated (Modrinth's full catalog, one page fetched at a time).
+  // 'keyword' / 'ai': the full deduped aggregate is fetched once and paginated client-side.
+  const [resultsMode, setResultsMode] = useState<'browse' | 'keyword' | 'ai' | null>(null);
   const [results, setResults] = useState<ModrinthSearchHit[] | null>(null);
-  const [resultsMode, setResultsMode] = useState<'name' | 'ai' | null>(null);
   const [offset, setOffset] = useState(0);
   const [totalHits, setTotalHits] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
   const [addingId, setAddingId] = useState<string | null>(null);
+
+  const visibleResults = useMemo(() => {
+    if (!results) return null;
+    return resultsMode === 'browse' ? results : results.slice(offset, offset + PAGE_SIZE);
+  }, [results, resultsMode, offset]);
 
   const [aiDescription, setAiDescription] = useState('');
   const [submittedAiDescription, setSubmittedAiDescription] = useState<string | null>(null);
@@ -75,15 +84,37 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     return () => clearInterval(interval);
   }, [aiLoading]);
 
-  async function performSearch(q: string, newOffset: number) {
+  // Blank query: browse Modrinth's full catalog, one server page at a time —
+  // there's nothing to split into keywords, so this bypasses the searcher.
+  async function performBrowseSearch(newOffset: number) {
     setSearchLoading(true);
     setSearchError(null);
     try {
-      const page = await searchMods(q, target.gameVersion, target.loader, newOffset, PAGE_SIZE);
+      const page = await searchMods('', target.gameVersion, target.loader, newOffset, PAGE_SIZE);
       setResults(page.hits);
-      setResultsMode('name');
+      setResultsMode('browse');
       setOffset(page.offset);
       setTotalHits(page.totalHits);
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  // Non-blank query: parse the comma/bang syntax into positives/negatives and
+  // run it through the same searcher the AI pipeline uses. Fetches the whole
+  // deduped aggregate once; pagination over it is client-side from here on.
+  async function performKeywordSearch(q: string) {
+    setSearchLoading(true);
+    setSearchError(null);
+    try {
+      const { positives, negatives } = parseKeywordQuery(q);
+      const hits = await searchAcrossPositives(positives, negatives, target, defaultModSearcher);
+      setResults(hits);
+      setResultsMode('keyword');
+      setOffset(0);
+      setTotalHits(hits.length);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -95,18 +126,25 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     e.preventDefault();
     if (!targetReady) return;
     setSubmittedQuery(query);
-    await performSearch(query, 0);
+    if (query.trim() === '') {
+      await performBrowseSearch(0);
+    } else {
+      await performKeywordSearch(query);
+    }
   }
 
   function goToPage(newOffset: number) {
-    if (submittedQuery === null) return;
-    performSearch(submittedQuery, newOffset);
+    if (resultsMode === 'browse') {
+      performBrowseSearch(newOffset);
+    } else {
+      setOffset(newOffset);
+    }
   }
 
   async function clearSearch() {
     setQuery('');
     setSubmittedQuery('');
-    await performSearch('', 0);
+    await performBrowseSearch(0);
   }
 
   const autoSearchedRef = useRef(false);
@@ -114,7 +152,7 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     if (!targetReady || autoSearchedRef.current) return;
     autoSearchedRef.current = true;
     setSubmittedQuery('');
-    performSearch('', 0);
+    performBrowseSearch(0);
   }, [targetReady]);
 
   const queryEmpty = query.trim() === '';
@@ -136,6 +174,10 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
       setResultsMode('ai');
       setOffset(0);
       setTotalHits(result.hits.length);
+      // Mirror the AI's query into the plain search bar using the same
+      // comma/bang syntax it understands, so re-running it (or tweaking it
+      // by hand) reproduces this exact result via the same searcher.
+      setQuery(formatKeywordQuery({ positives: result.positives, negatives: result.negatives }));
       const count = result.hits.length;
       let summary = `Found ${count} mod${count === 1 ? '' : 's'} across ${result.positives.length} theme${result.positives.length === 1 ? '' : 's'}: ${result.positives.join(', ')}.`;
       if (result.negatives.length > 0) {
@@ -278,12 +320,12 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
               <h2>
                 {resultsMode === 'ai'
                   ? `AI results for ${truncateForDisplay(submittedAiDescription ?? '', MAX_QUERY_DISPLAY_LENGTH)}`
-                  : submittedQuery
-                    ? `Results for ${truncateForDisplay(submittedQuery, MAX_QUERY_DISPLAY_LENGTH)}`
+                  : resultsMode === 'keyword'
+                    ? `Results for ${truncateForDisplay(submittedQuery ?? '', MAX_QUERY_DISPLAY_LENGTH)}`
                     : 'Mods'}{' '}
                 ({totalHits})
               </h2>
-              {resultsMode === 'name' && totalHits > PAGE_SIZE && (
+              {totalHits > PAGE_SIZE && (
                 <div className="pagination">
                   <button type="button" onClick={() => goToPage(offset - PAGE_SIZE)} disabled={searchLoading || offset === 0}>
                     Prev
@@ -303,7 +345,7 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
             </div>
             {results.length === 0 && <p className="status">No mods matched that search for {target.loader} {target.gameVersion}.</p>}
             <ul className="mod-list">
-              {results.map((hit) => (
+              {visibleResults?.map((hit) => (
                 <li key={hit.projectId} className="mod-row">
                   {hit.iconUrl ? <img src={hit.iconUrl} alt="" className="mod-row-icon" /> : <div className="mod-row-icon" />}
                   <div className="mod-row-body">
