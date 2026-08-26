@@ -137,10 +137,9 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
       setOffset(0);
       setTotalHits(result.hits.length);
       const count = result.hits.length;
-      let summary = `Found ${count} mod${count === 1 ? '' : 's'}.`;
-      if (result.droppedHallucinatedIds.length > 0) {
-        const dropped = result.droppedHallucinatedIds.length;
-        summary += ` Ignored ${dropped} suggestion${dropped === 1 ? '' : 's'} that didn't come from a real search result.`;
+      let summary = `Found ${count} mod${count === 1 ? '' : 's'} across ${result.positives.length} theme${result.positives.length === 1 ? '' : 's'}: ${result.positives.join(', ')}.`;
+      if (result.negatives.length > 0) {
+        summary += ` Excluded: ${result.negatives.join(', ')}.`;
       }
       setAiSummary(summary);
     } catch (err) {
