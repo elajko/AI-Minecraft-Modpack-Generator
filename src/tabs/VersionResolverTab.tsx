@@ -2,21 +2,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { resolveVersions, type ResolveResult, type VersionConstraint, type VersionRecord } from '../lib/versionResolver';
 import { fetchModrinthVersions, SYNTHETIC_FIXTURE } from '../lib/modrinthVersions';
 import { buildTimelineSegments } from '../lib/timelineSegments';
+import { colorForVersionType as colorFor, VERSION_TYPE_COLORS as TYPE_COLORS } from '../lib/versionTypeColors';
 import './VersionResolverTab.css';
 
 type ConstraintKind = VersionConstraint['kind'];
-
-const TYPE_COLORS: Record<string, string> = {
-  release: '#4caf50',
-  snapshot: '#ff9800',
-  beta: '#2196f3',
-  alpha: '#f44336',
-  other: '#9e9e9e',
-};
-
-function colorFor(type: string): string {
-  return TYPE_COLORS[type] ?? '#9c27b0';
-}
 
 export function VersionResolverTab() {
   const [source, setSource] = useState<'fixture' | 'live'>('fixture');

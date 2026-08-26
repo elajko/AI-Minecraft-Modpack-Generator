@@ -136,3 +136,35 @@
   flex-shrink: 0;
   align-self: center;
 }
+
+.type-filter {
+  display: flex;
+  gap: 0.9rem;
+  border: none;
+  padding: 0;
+  margin: 0;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.type-filter legend {
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.6);
+  padding: 0;
+}
+
+.type-checkbox {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.3em !important;
+  color: #fff !important;
+}
+
+.type-checkbox .dot {
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  background: var(--type-color);
+  display: inline-block;
+}

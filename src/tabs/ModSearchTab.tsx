@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import { fetchModLoaders, getCompatibleVersions, getProjectTitles, searchMods, type ModrinthSearchHit } from '../lib/modrinthApi';
 import { fetchModrinthVersions } from '../lib/modrinthVersions';
 import { addModToPack, type PackMod, type PackTarget } from '../lib/modpack';
 import { runAiModSearch } from '../lib/aiModSearch';
-import { countHitsByVersion, defaultModSearcher, filterByGameVersion, searchAcrossPositives } from '../lib/modSearcher';
+import {
+  countHitsByVersion,
+  defaultModSearcher,
+  filterByGameVersion,
+  searchAcrossPositives,
+  sortVersionCountsByRecency,
+} from '../lib/modSearcher';
 import { formatKeywordQuery, parseKeywordQuery } from '../lib/keywordQuery';
+import { colorForVersionType } from '../lib/versionTypeColors';
 import './ModSearchTab.css';
 
 const PAGE_SIZE = 20;
@@ -27,17 +34,22 @@ interface RowStatus {
 }
 
 export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabProps) {
-  const [gameVersions, setGameVersions] = useState<string[]>([]);
   const [loaders, setLoaders] = useState<string[]>([]);
   const [targetsError, setTargetsError] = useState<string | null>(null);
+  // Every version's release date, used to order the Versions sidebar list
+  // newest-first, and its type (release/snapshot/beta/alpha/other), used for
+  // the include-types filter and each row's left border color.
+  const [versionDates, setVersionDates] = useState<Map<string, string>>(new Map());
+  const [versionTypes, setVersionTypes] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     Promise.all([fetchModrinthVersions(), fetchModLoaders()])
       .then(([versions, loaderList]) => {
+        setVersionDates(new Map(versions.map((v) => [v.id, v.releasedAt])));
+        setVersionTypes(new Map(versions.map((v) => [v.id, v.type])));
         const releases = versions
           .filter((v) => v.type === 'release')
           .sort((a, b) => Date.parse(b.releasedAt) - Date.parse(a.releasedAt));
-        setGameVersions(releases.map((v) => v.id));
         setLoaders(loaderList);
         setTarget((prev) => ({
           gameVersion: prev.gameVersion || releases[0]?.id || '',
@@ -52,15 +64,15 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
 
   const [query, setQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
-  // 'browse': blank query, server-paginated (Modrinth's full catalog, one page fetched at a time).
-  // 'keyword' / 'ai': the full deduped aggregate is fetched once and paginated client-side.
+  // 'browse': blank query, one large batch (Modrinth's max: 100 results).
+  // 'keyword' / 'ai': the full deduped aggregate across every positive search.
+  // Either way, the whole batch is cached once and paginated client-side.
   const [resultsMode, setResultsMode] = useState<'browse' | 'keyword' | 'ai' | null>(null);
   // Every poll to Modrinth is version-agnostic (see lib/modrinthApi.ts) — this
-  // holds whatever was actually fetched (a browse page, or a full keyword/AI
-  // aggregate), unfiltered by version. Filtering for the selected version
-  // happens below, purely client-side, so switching versions never re-fetches.
+  // holds whatever was actually fetched, unfiltered by version. Filtering for
+  // the selected version happens below, purely client-side, so switching
+  // versions never re-fetches.
   const [rawResults, setRawResults] = useState<ModrinthSearchHit[] | null>(null);
-  const [browseTotalHits, setBrowseTotalHits] = useState(0);
   const [offset, setOffset] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -72,19 +84,41 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     [rawResults, target.gameVersion],
   );
 
-  // Browse mode's total is Modrinth's real catalog-wide count (we only ever
-  // hold one page of it); keyword/AI modes hold the full aggregate already,
-  // so their total is just how much of it currently matches the version.
-  const totalHits = resultsMode === 'browse' ? browseTotalHits : (versionFilteredResults?.length ?? 0);
+  const totalHits = versionFilteredResults?.length ?? 0;
 
   const visibleResults = useMemo(() => {
     if (!versionFilteredResults) return null;
-    return resultsMode === 'browse' ? versionFilteredResults : versionFilteredResults.slice(offset, offset + PAGE_SIZE);
-  }, [versionFilteredResults, resultsMode, offset]);
+    return versionFilteredResults.slice(offset, offset + PAGE_SIZE);
+  }, [versionFilteredResults, offset]);
 
   // Tallied from the full unfiltered result set, not the version-filtered
-  // view — the point is to show which versions have results at all.
-  const versionCounts = useMemo(() => (rawResults ? countHitsByVersion(rawResults) : []), [rawResults]);
+  // view — the point is to show which versions have results at all. Ordered
+  // newest-release-first rather than by count.
+  const versionCounts = useMemo(
+    () => sortVersionCountsByRecency(rawResults ? countHitsByVersion(rawResults) : [], versionDates),
+    [rawResults, versionDates],
+  );
+
+  const availableVersionTypes = useMemo(
+    () => Array.from(new Set(versionCounts.map(({ version }) => versionTypes.get(version) ?? 'other'))).sort(),
+    [versionCounts, versionTypes],
+  );
+
+  const [includeVersionTypes, setIncludeVersionTypes] = useState<Set<string>>(new Set(['release']));
+
+  function toggleVersionType(type: string) {
+    setIncludeVersionTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  }
+
+  const visibleVersionCounts = useMemo(
+    () => versionCounts.filter(({ version }) => includeVersionTypes.has(versionTypes.get(version) ?? 'other')),
+    [versionCounts, versionTypes, includeVersionTypes],
+  );
 
   // A client-side page offset can point past the end once the version
   // changes and the filtered set shrinks — snap back to the top rather than
@@ -109,17 +143,18 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     return () => clearInterval(interval);
   }, [aiLoading]);
 
-  // Blank query: browse Modrinth's full catalog, one server page at a time —
-  // there's nothing to split into keywords, so this bypasses the searcher.
-  async function performBrowseSearch(newOffset: number) {
+  // Blank query: browse Modrinth's catalog. One batch at Modrinth's actual
+  // max (100 — verified empirically, requesting more just gets silently
+  // capped at 100 by the API), cached and paginated client-side like every
+  // other mode, so counts and pages are never artificially limited to 20.
+  async function performBrowseSearch() {
     setSearchLoading(true);
     setSearchError(null);
     try {
-      const page = await searchMods('', target.loader, newOffset, PAGE_SIZE);
+      const page = await searchMods('', target.loader, 0, 100);
       setRawResults(page.hits);
       setResultsMode('browse');
-      setOffset(page.offset);
-      setBrowseTotalHits(page.totalHits);
+      setOffset(0);
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -151,33 +186,44 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     if (!targetReady) return;
     setSubmittedQuery(query);
     if (query.trim() === '') {
-      await performBrowseSearch(0);
+      await performBrowseSearch();
     } else {
       await performKeywordSearch(query);
     }
   }
 
   function goToPage(newOffset: number) {
-    if (resultsMode === 'browse') {
-      performBrowseSearch(newOffset);
-    } else {
-      setOffset(newOffset);
-    }
+    setOffset(newOffset);
   }
 
   async function clearSearch() {
     setQuery('');
     setSubmittedQuery('');
-    await performBrowseSearch(0);
+    await performBrowseSearch();
   }
 
-  const autoSearchedRef = useRef(false);
+  // Runs the initial browse search once the target is ready, then re-runs
+  // whichever search is currently active — browse or keyword, matching
+  // whatever's in the search box — every time the loader actually changes
+  // afterward, since the loader is a server-side facet the cache can't just
+  // be re-filtered for locally the way version can.
+  const lastSearchedLoaderRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!targetReady || autoSearchedRef.current) return;
-    autoSearchedRef.current = true;
-    setSubmittedQuery('');
-    performBrowseSearch(0);
-  }, [targetReady]);
+    if (!targetReady) return;
+    if (lastSearchedLoaderRef.current === null) {
+      lastSearchedLoaderRef.current = target.loader;
+      setSubmittedQuery('');
+      performBrowseSearch();
+      return;
+    }
+    if (lastSearchedLoaderRef.current === target.loader) return;
+    lastSearchedLoaderRef.current = target.loader;
+    if (query.trim() === '') {
+      performBrowseSearch();
+    } else {
+      performKeywordSearch(query);
+    }
+  }, [targetReady, target.loader]);
 
   const queryEmpty = query.trim() === '';
   const onNonEmptySearch = submittedQuery !== null && submittedQuery !== '';
@@ -263,39 +309,21 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     <div className="mod-search-layout">
       <aside className="mod-search-sidebar">
         <section className="panel">
-          <h2>Target</h2>
+          <h2>Loader</h2>
           {targetsError && <p className="status error">Failed to load versions/loaders: {targetsError}</p>}
           <div className="target-form">
-            <label>
-              Minecraft version
-              <select
-                value={target.gameVersion}
-                disabled={locked || gameVersions.length === 0}
-                onChange={(e) => setTarget((prev) => ({ ...prev, gameVersion: e.target.value }))}
-              >
-                {gameVersions.length === 0 && <option value="">Loading…</option>}
-                {gameVersions.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Loader
-              <select
-                value={target.loader}
-                disabled={locked || loaders.length === 0}
-                onChange={(e) => setTarget((prev) => ({ ...prev, loader: e.target.value }))}
-              >
-                {loaders.length === 0 && <option value="">Loading…</option>}
-                {loaders.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <select
+              value={target.loader}
+              disabled={locked || loaders.length === 0}
+              onChange={(e) => setTarget((prev) => ({ ...prev, loader: e.target.value }))}
+            >
+              {loaders.length === 0 && <option value="">Loading…</option>}
+              {loaders.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
           </div>
           {locked && <p className="status">Locked while the pack has mods in it — clear the pack to change the target.</p>}
         </section>
@@ -305,14 +333,34 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
           {versionCounts.length === 0 ? (
             <p className="status">No search results yet.</p>
           ) : (
-            <ul className="version-counts">
-              {versionCounts.map(({ version, count }) => (
-                <li key={version}>
-                  <span className="version-counts-version">{version}</span>
-                  <span className="version-counts-count">{count}</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <fieldset className="type-filter">
+                <legend>Include types</legend>
+                {availableVersionTypes.map((type) => (
+                  <label key={type} className="type-checkbox" style={{ '--type-color': colorForVersionType(type) } as CSSProperties}>
+                    <input type="checkbox" checked={includeVersionTypes.has(type)} onChange={() => toggleVersionType(type)} />
+                    <span className="dot" />
+                    {type}
+                  </label>
+                ))}
+              </fieldset>
+              <ul className="version-counts">
+                {visibleVersionCounts.map(({ version, count }) => (
+                  <li key={version}>
+                    <button
+                      type="button"
+                      className={`version-counts-row ${target.gameVersion === version ? 'selected' : ''}`}
+                      style={{ '--type-color': colorForVersionType(versionTypes.get(version) ?? 'other') } as CSSProperties}
+                      disabled={locked}
+                      onClick={() => setTarget((prev) => ({ ...prev, gameVersion: version }))}
+                    >
+                      <span className="version-counts-version">{version}</span>
+                      <span className="version-counts-count">{count}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </section>
       </aside>

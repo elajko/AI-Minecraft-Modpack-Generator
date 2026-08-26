@@ -45,8 +45,7 @@ export interface VersionCount {
 /**
  * Tallies how many hits support each Minecraft version, across every version
  * each hit claims to support (not just whichever one is currently selected).
- * Sorted most-supported-first, since the point is to help pick a version
- * likely to have results.
+ * Order is unspecified — see sortVersionCountsByRecency for display order.
  */
 export function countHitsByVersion(hits: ModrinthSearchHit[]): VersionCount[] {
   const counts = new Map<string, number>();
@@ -55,9 +54,23 @@ export function countHitsByVersion(hits: ModrinthSearchHit[]): VersionCount[] {
       counts.set(version, (counts.get(version) ?? 0) + 1);
     }
   }
-  return Array.from(counts.entries())
-    .map(([version, count]) => ({ version, count }))
-    .sort((a, b) => b.count - a.count || a.version.localeCompare(b.version));
+  return Array.from(counts.entries()).map(([version, count]) => ({ version, count }));
+}
+
+/**
+ * Orders version counts newest-release-first, using each version's release
+ * date (e.g. from fetchModrinthVersions). A version with no known date sorts
+ * after every dated one, falling back to alphabetical order among those.
+ */
+export function sortVersionCountsByRecency(counts: VersionCount[], releasedAtByVersion: Map<string, string>): VersionCount[] {
+  return [...counts].sort((a, b) => {
+    const dateA = releasedAtByVersion.get(a.version);
+    const dateB = releasedAtByVersion.get(b.version);
+    if (dateA && dateB) return Date.parse(dateB) - Date.parse(dateA);
+    if (dateA) return -1;
+    if (dateB) return 1;
+    return a.version.localeCompare(b.version);
+  });
 }
 
 /**

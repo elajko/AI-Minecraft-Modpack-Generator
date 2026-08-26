@@ -4,6 +4,7 @@ import {
   filterByGameVersion,
   filterOutNegativeMatches,
   searchAcrossPositives,
+  sortVersionCountsByRecency,
   textMatchesAnyKeyword,
   type ModSearchQuery,
   type ModSearcher,
@@ -81,28 +82,49 @@ describe('countHitsByVersion', () => {
       hit({ projectId: 'b', versions: ['1.20.1'] }),
       hit({ projectId: 'c', versions: ['1.19.4'] }),
     ];
-    expect(countHitsByVersion(hits)).toEqual([
-      { version: '1.19.4', count: 2 },
-      { version: '1.20.1', count: 2 },
-    ]);
-  });
-
-  it('sorts most-supported version first', () => {
-    const hits = [
-      hit({ projectId: 'a', versions: ['1.19.4'] }),
-      hit({ projectId: 'b', versions: ['1.20.1'] }),
-      hit({ projectId: 'c', versions: ['1.20.1'] }),
-    ];
-    expect(countHitsByVersion(hits).map((v) => v.version)).toEqual(['1.20.1', '1.19.4']);
-  });
-
-  it('breaks ties alphabetically for a stable order', () => {
-    const hits = [hit({ projectId: 'a', versions: ['1.20.1'] }), hit({ projectId: 'b', versions: ['1.19.4'] })];
-    expect(countHitsByVersion(hits).map((v) => v.version)).toEqual(['1.19.4', '1.20.1']);
+    const result = countHitsByVersion(hits);
+    expect(result).toHaveLength(2);
+    expect(result).toEqual(
+      expect.arrayContaining([
+        { version: '1.19.4', count: 2 },
+        { version: '1.20.1', count: 2 },
+      ]),
+    );
   });
 
   it('returns an empty array for no hits', () => {
     expect(countHitsByVersion([])).toEqual([]);
+  });
+});
+
+describe('sortVersionCountsByRecency', () => {
+  it('orders newest release first using the provided release dates', () => {
+    const counts = [
+      { version: '1.19.4', count: 1 },
+      { version: '1.20.1', count: 1 },
+    ];
+    const dates = new Map([
+      ['1.19.4', '2022-07-27'],
+      ['1.20.1', '2023-06-12'],
+    ]);
+    expect(sortVersionCountsByRecency(counts, dates).map((c) => c.version)).toEqual(['1.20.1', '1.19.4']);
+  });
+
+  it('sorts versions with no known date after every dated version', () => {
+    const counts = [
+      { version: 'mystery-snapshot', count: 1 },
+      { version: '1.20.1', count: 1 },
+    ];
+    const dates = new Map([['1.20.1', '2023-06-12']]);
+    expect(sortVersionCountsByRecency(counts, dates).map((c) => c.version)).toEqual(['1.20.1', 'mystery-snapshot']);
+  });
+
+  it('falls back to alphabetical order among versions with no known date', () => {
+    const counts = [
+      { version: 'zeta', count: 1 },
+      { version: 'alpha', count: 1 },
+    ];
+    expect(sortVersionCountsByRecency(counts, new Map()).map((c) => c.version)).toEqual(['alpha', 'zeta']);
   });
 });
 
