@@ -37,6 +37,29 @@ export function filterByGameVersion(hits: ModrinthSearchHit[], gameVersion: stri
   return hits.filter((hit) => hit.versions.includes(gameVersion));
 }
 
+export interface VersionCount {
+  version: string;
+  count: number;
+}
+
+/**
+ * Tallies how many hits support each Minecraft version, across every version
+ * each hit claims to support (not just whichever one is currently selected).
+ * Sorted most-supported-first, since the point is to help pick a version
+ * likely to have results.
+ */
+export function countHitsByVersion(hits: ModrinthSearchHit[]): VersionCount[] {
+  const counts = new Map<string, number>();
+  for (const hit of hits) {
+    for (const version of hit.versions) {
+      counts.set(version, (counts.get(version) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([version, count]) => ({ version, count }))
+    .sort((a, b) => b.count - a.count || a.version.localeCompare(b.version));
+}
+
 /**
  * Searches Modrinth for the positive phrase and drops any result whose title
  * or description mentions a negative keyword. No LLM involved in this step —

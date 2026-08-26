@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  countHitsByVersion,
   filterByGameVersion,
   filterOutNegativeMatches,
   searchAcrossPositives,
@@ -70,6 +71,38 @@ describe('filterByGameVersion', () => {
   it('returns an empty array when nothing supports the version', () => {
     const hits = [hit({ versions: ['1.19.4'] })];
     expect(filterByGameVersion(hits, '1.20.1')).toEqual([]);
+  });
+});
+
+describe('countHitsByVersion', () => {
+  it('counts how many hits support each version, across every version each hit supports', () => {
+    const hits = [
+      hit({ projectId: 'a', versions: ['1.20.1', '1.19.4'] }),
+      hit({ projectId: 'b', versions: ['1.20.1'] }),
+      hit({ projectId: 'c', versions: ['1.19.4'] }),
+    ];
+    expect(countHitsByVersion(hits)).toEqual([
+      { version: '1.19.4', count: 2 },
+      { version: '1.20.1', count: 2 },
+    ]);
+  });
+
+  it('sorts most-supported version first', () => {
+    const hits = [
+      hit({ projectId: 'a', versions: ['1.19.4'] }),
+      hit({ projectId: 'b', versions: ['1.20.1'] }),
+      hit({ projectId: 'c', versions: ['1.20.1'] }),
+    ];
+    expect(countHitsByVersion(hits).map((v) => v.version)).toEqual(['1.20.1', '1.19.4']);
+  });
+
+  it('breaks ties alphabetically for a stable order', () => {
+    const hits = [hit({ projectId: 'a', versions: ['1.20.1'] }), hit({ projectId: 'b', versions: ['1.19.4'] })];
+    expect(countHitsByVersion(hits).map((v) => v.version)).toEqual(['1.19.4', '1.20.1']);
+  });
+
+  it('returns an empty array for no hits', () => {
+    expect(countHitsByVersion([])).toEqual([]);
   });
 });
 

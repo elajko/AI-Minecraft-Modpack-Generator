@@ -3,7 +3,7 @@ import { fetchModLoaders, getCompatibleVersions, getProjectTitles, searchMods, t
 import { fetchModrinthVersions } from '../lib/modrinthVersions';
 import { addModToPack, type PackMod, type PackTarget } from '../lib/modpack';
 import { runAiModSearch } from '../lib/aiModSearch';
-import { defaultModSearcher, filterByGameVersion, searchAcrossPositives } from '../lib/modSearcher';
+import { countHitsByVersion, defaultModSearcher, filterByGameVersion, searchAcrossPositives } from '../lib/modSearcher';
 import { formatKeywordQuery, parseKeywordQuery } from '../lib/keywordQuery';
 import './ModSearchTab.css';
 
@@ -81,6 +81,10 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     if (!versionFilteredResults) return null;
     return resultsMode === 'browse' ? versionFilteredResults : versionFilteredResults.slice(offset, offset + PAGE_SIZE);
   }, [versionFilteredResults, resultsMode, offset]);
+
+  // Tallied from the full unfiltered result set, not the version-filtered
+  // view — the point is to show which versions have results at all.
+  const versionCounts = useMemo(() => (rawResults ? countHitsByVersion(rawResults) : []), [rawResults]);
 
   // A client-side page offset can point past the end once the version
   // changes and the filtered set shrinks — snap back to the top rather than
@@ -294,6 +298,22 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
             </label>
           </div>
           {locked && <p className="status">Locked while the pack has mods in it — clear the pack to change the target.</p>}
+        </section>
+
+        <section className="panel">
+          <h2>Versions</h2>
+          {versionCounts.length === 0 ? (
+            <p className="status">No search results yet.</p>
+          ) : (
+            <ul className="version-counts">
+              {versionCounts.map(({ version, count }) => (
+                <li key={version}>
+                  <span className="version-counts-version">{version}</span>
+                  <span className="version-counts-count">{count}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       </aside>
 
