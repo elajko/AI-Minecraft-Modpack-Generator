@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, ty
 import { fetchModLoaders, getCompatibleVersions, getProjectTitles, searchMods, type ModrinthSearchHit } from '../lib/modrinthApi';
 import { fetchModrinthVersions } from '../lib/modrinthVersions';
 import { addModToPack, type PackMod, type PackTarget } from '../lib/modpack';
+import { runAiModSearch } from '../lib/aiModSearch';
 import './ModSearchTab.css';
 
 const PAGE_SIZE = 20;
@@ -50,6 +51,7 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
   const [query, setQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
   const [results, setResults] = useState<ModrinthSearchHit[] | null>(null);
+  const [resultsMode, setResultsMode] = useState<'name' | 'ai' | null>(null);
   const [offset, setOffset] = useState(0);
   const [totalHits, setTotalHits] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -58,7 +60,20 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
   const [addingId, setAddingId] = useState<string | null>(null);
 
   const [aiDescription, setAiDescription] = useState('');
-  const [aiStatus, setAiStatus] = useState<RowStatus | null>(null);
+  const [submittedAiDescription, setSubmittedAiDescription] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiProgressMessage, setAiProgressMessage] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [aiElapsedSeconds, setAiElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!aiLoading) return;
+    const start = Date.now();
+    setAiElapsedSeconds(0);
+    const interval = setInterval(() => setAiElapsedSeconds(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(interval);
+  }, [aiLoading]);
 
   async function performSearch(q: string, newOffset: number) {
     setSearchLoading(true);
@@ -66,6 +81,7 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
     try {
       const page = await searchMods(q, target.gameVersion, target.loader, newOffset, PAGE_SIZE);
       setResults(page.hits);
+      setResultsMode('name');
       setOffset(page.offset);
       setTotalHits(page.totalHits);
     } catch (err) {
@@ -105,9 +121,34 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
   const onNonEmptySearch = submittedQuery !== null && submittedQuery !== '';
   const showClearButton = queryEmpty && onNonEmptySearch;
 
-  function runAiSearch(e: FormEvent) {
+  async function runAiSearch(e: FormEvent) {
     e.preventDefault();
-    setAiStatus({ ok: false, message: 'AI-powered search is not wired up yet — this is a placeholder for a future update.' });
+    const description = aiDescription.trim();
+    if (!targetReady || !description) return;
+    setAiLoading(true);
+    setAiError(null);
+    setAiSummary(null);
+    setAiProgressMessage('Thinking…');
+    setSubmittedAiDescription(description);
+    try {
+      const result = await runAiModSearch(description, target, (progress) => setAiProgressMessage(progress.message));
+      setResults(result.hits);
+      setResultsMode('ai');
+      setOffset(0);
+      setTotalHits(result.hits.length);
+      const count = result.hits.length;
+      let summary = `Found ${count} mod${count === 1 ? '' : 's'}.`;
+      if (result.droppedHallucinatedIds.length > 0) {
+        const dropped = result.droppedHallucinatedIds.length;
+        summary += ` Ignored ${dropped} suggestion${dropped === 1 ? '' : 's'} that didn't come from a real search result.`;
+      }
+      setAiSummary(summary);
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiLoading(false);
+      setAiProgressMessage(null);
+    }
   }
 
   async function handleAdd(hit: ModrinthSearchHit) {
@@ -205,11 +246,17 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
               onChange={(e) => setAiDescription(e.target.value)}
               rows={3}
             />
-            <button type="submit" disabled={!targetReady || !aiDescription.trim()}>
-              Search with AI
+            <button type="submit" disabled={!targetReady || !aiDescription.trim() || aiLoading}>
+              {aiLoading ? 'Searching…' : 'Search with AI'}
             </button>
           </form>
-          {aiStatus && <p className={`status ${aiStatus.ok ? 'success' : 'error'}`}>{aiStatus.message}</p>}
+          {aiLoading && aiProgressMessage && (
+            <p className="status">
+              {aiProgressMessage} ({aiElapsedSeconds}s)
+            </p>
+          )}
+          {!aiLoading && aiError && <p className="status error">{aiError}</p>}
+          {!aiLoading && aiSummary && <p className="status success">{aiSummary}</p>}
 
           <form className="search-form" onSubmit={runSearch}>
             <input type="text" placeholder="Search mod by name…" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -230,9 +277,14 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
           <section className="panel">
             <div className="results-header">
               <h2>
-                {submittedQuery ? `Results for ${truncateForDisplay(submittedQuery, MAX_QUERY_DISPLAY_LENGTH)}` : 'Mods'} ({totalHits})
+                {resultsMode === 'ai'
+                  ? `AI results for ${truncateForDisplay(submittedAiDescription ?? '', MAX_QUERY_DISPLAY_LENGTH)}`
+                  : submittedQuery
+                    ? `Results for ${truncateForDisplay(submittedQuery, MAX_QUERY_DISPLAY_LENGTH)}`
+                    : 'Mods'}{' '}
+                ({totalHits})
               </h2>
-              {totalHits > PAGE_SIZE && (
+              {resultsMode === 'name' && totalHits > PAGE_SIZE && (
                 <div className="pagination">
                   <button type="button" onClick={() => goToPage(offset - PAGE_SIZE)} disabled={searchLoading || offset === 0}>
                     Prev
@@ -257,7 +309,8 @@ export function ModSearchTab({ target, setTarget, mods, setMods }: ModSearchTabP
                   {hit.iconUrl ? <img src={hit.iconUrl} alt="" className="mod-row-icon" /> : <div className="mod-row-icon" />}
                   <div className="mod-row-body">
                     <div className="mod-row-title">
-                      {hit.title} <span className="mod-row-author">by {hit.author}</span>
+                      {hit.title}
+                      {hit.author && <span className="mod-row-author"> by {hit.author}</span>}
                     </div>
                     <p className="mod-row-description">{hit.description}</p>
                     {rowStatus[hit.projectId] && (

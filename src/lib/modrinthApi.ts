@@ -139,6 +139,38 @@ export async function getProjectTitles(projectIds: string[]): Promise<Record<str
   return Object.fromEntries(data.map((p) => [p.id, p.title]));
 }
 
+interface RawProject {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  icon_url: string | null;
+  downloads: number;
+  categories: string[];
+}
+
+/**
+ * Batch-fetches full project details by id, for turning a set of ground-truth
+ * project ids (e.g. ones an AI tool-calling loop has actually seen via
+ * search_mods) back into displayable result cards. The batch endpoint has no
+ * `author` field, only a team id, so author is left blank here.
+ */
+export async function getProjectsByIds(projectIds: string[]): Promise<ModrinthSearchHit[]> {
+  if (projectIds.length === 0) return [];
+  const params = new URLSearchParams({ ids: JSON.stringify(projectIds) });
+  const data = await modrinthFetch<RawProject[]>(`/projects?${params.toString()}`);
+  return data.map((p) => ({
+    projectId: p.id,
+    slug: p.slug,
+    title: p.title,
+    author: '',
+    description: p.description,
+    iconUrl: p.icon_url,
+    downloads: p.downloads,
+    categories: p.categories,
+  }));
+}
+
 export async function fetchModLoaders(): Promise<string[]> {
   const data = await modrinthFetch<{ name: string; supported_project_types: string[] }[]>('/tag/loader');
   return data.filter((l) => l.supported_project_types.includes('mod')).map((l) => l.name);
